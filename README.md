@@ -29,8 +29,10 @@ update merge by test 1
 ### 部署
 
 推到 `master` 後，`.github/workflows/pages.yml` 會自動部署到 GitHub Pages。
-第一次需要先到 repo 的 **Settings → Pages → Build and deployment → Source** 選擇 **GitHub Actions**；
-workflow 用的 `GITHUB_TOKEN` 沒有權限自己建立 Pages site，所以這一步必須手動做一次。
+Pages 的來源是 `gh-pages` 分支。推到 `master` 後，`.github/workflows/pages.yml` 會把該 commit
+鏡像到 `gh-pages`，GitHub 接著自動重建網站，不需要手動操作。
+
+（`gh-pages` 是自動產生的部署分支，直接改它沒有意義，下次部署就會被覆蓋——請改 `master`。）
 
 網址：https://hongahung.github.io/test/
 
