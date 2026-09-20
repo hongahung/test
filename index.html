@@ -61,26 +61,47 @@ h1{font-size:1.1rem;font-weight:500;margin:0;letter-spacing:.08em;color:var(--mu
   border:2px solid rgba(212,178,92,.35);
   box-shadow:inset 0 0 40px rgba(0,0,0,.35);
   cursor:grab;touch-action:none;overflow:hidden;
+  perspective:900px;perspective-origin:50% 45%;
 }
 #table:active{cursor:grabbing}
 .die{
   --s:clamp(58px,19vw,84px); --z:0;
-  position:absolute;left:0;top:0;width:var(--s);height:var(--s);border-radius:18%;
-  background:linear-gradient(145deg,#fffaf0 0%,var(--ivory) 55%,var(--ivory-edge) 100%);
-  box-shadow:0 2px 0 var(--ivory-edge),
-    calc(var(--z) * .25px) calc(8px + var(--z) * .45px) calc(14px + var(--z) * .5px) rgba(0,0,0,calc(.4 - var(--z) * .002));
-  padding:0;border:none;cursor:pointer;will-change:transform;
+  position:absolute;left:0;top:0;width:var(--s);height:var(--s);
+  padding:0;border:none;background:none;cursor:pointer;
+  transform-style:preserve-3d;will-change:transform;
+  -webkit-touch-callout:none;
 }
 .die:focus-visible{outline:3px solid var(--brass);outline-offset:4px}
-.die.held{
-  box-shadow:0 0 0 3px var(--brass),0 8px 14px rgba(0,0,0,.4);
+
+/* the cast shadow lies flat under the cube and spreads as the die lifts */
+.shadow{
+  position:absolute;left:0;top:0;width:100%;height:100%;border-radius:22%;
+  background:#000;
+  transform:translateZ(calc(var(--s) / -2)) translateY(calc(4px + var(--z) * .45px));
+  filter:blur(calc(5px + var(--z) * .07px));
+  opacity:calc(.5 - var(--z) * .0011);
 }
+.cube{position:absolute;left:0;top:0;width:100%;height:100%;transform-style:preserve-3d}
+.cube.settle{transition:transform .32s cubic-bezier(.2,.8,.3,1)}
+.face{
+  position:absolute;left:0;top:0;width:100%;height:100%;border-radius:16%;
+  background:linear-gradient(145deg,#fffaf0 0%,var(--ivory) 55%,var(--ivory-edge) 100%);
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.08), inset 0 -7px 12px rgba(0,0,0,.10);
+  backface-visibility:hidden;
+}
+.face svg{display:block;width:100%;height:100%;pointer-events:none}
+/* opposite faces sum to 7, as on a real die */
+.f1{transform:translateZ(calc(var(--s) / 2))}
+.f6{transform:rotateY(180deg) translateZ(calc(var(--s) / 2))}
+.f3{transform:rotateY(90deg)  translateZ(calc(var(--s) / 2))}
+.f4{transform:rotateY(-90deg) translateZ(calc(var(--s) / 2))}
+.f5{transform:rotateX(90deg)  translateZ(calc(var(--s) / 2))}
+.f2{transform:rotateX(-90deg) translateZ(calc(var(--s) / 2))}
+.die.held .face{box-shadow:inset 0 0 0 3px var(--brass)}
 .die.held::after{
   content:"保留";position:absolute;left:50%;top:100%;transform:translate(-50%,6px);
   font-size:.75rem;color:var(--brass);white-space:nowrap;font-family:inherit
 }
-.die{-webkit-touch-callout:none}
-.die svg{display:block;width:100%;height:100%;pointer-events:none}
 
 footer{padding:0 18px 18px}
 #history{
@@ -133,6 +154,8 @@ button:focus-visible{outline:3px solid var(--ivory);outline-offset:3px}
 <script>
 const LAYOUT = {1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
 const POS = [[25,25],[50,25],[75,25],[25,50],[50,50],[75,50],[25,75],[50,75],[75,75]];
+// how far to turn the cube so a given number ends up facing the viewer: [rotateX, rotateY]
+const SHOW = {1:[0,0], 2:[90,0], 3:[0,-90], 4:[0,90], 5:[-90,0], 6:[0,180]};
 const table = document.getElementById('table');
 const totalEl = document.getElementById('total');
 const hint = document.getElementById('hint');
@@ -244,21 +267,36 @@ function rattle(power){
   }
 }
 
-function face(d, v){
-  d.face = v;
+function pips(v){
   const color = (v === 1 || v === 4) ? '#C8102E' : '#1B1B1B';
   const r = v === 1 ? 13 : 9;
-  d.el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">${
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">${
     LAYOUT[v].map(i => `<circle cx="${POS[i][0]}" cy="${POS[i][1]}" r="${r}" fill="${color}"/>`).join('')
   }</svg>`;
+}
+
+// The pips no longer change: all six faces exist, so the value is whichever
+// one the cube happens to be turned towards.
+function face(d, v){
+  d.face = v;
   d.el.setAttribute('aria-label', `點數 ${v}${d.held ? '，已保留' : ''}`);
+}
+
+// Turn the cube so v faces the viewer, by the shortest way round from where
+// it already is, so a die never unwinds a dozen turns to land.
+function rest(d, v){
+  const [tx, ty] = SHOW[v];
+  d.rx = tx + Math.round((d.rx - tx) / 360) * 360;
+  d.ry = ty + Math.round((d.ry - ty) / 360) * 360;
+  face(d, v);
 }
 
 function draw(d){
   const lift = 1 + d.z / 500;
-  d.el.style.transform = `translate(${d.x}px, ${d.y - d.z * .6}px) rotate(${d.a}deg) scale(${lift})`;
+  d.el.style.transform = `translate(${d.x}px, ${d.y - d.z * .6}px) scale(${lift})`;
   d.el.style.setProperty('--z', d.z.toFixed(1));
   d.el.style.zIndex = d.z > 1 ? 10 : 1;
+  d.cube.style.transform = `rotateZ(${d.rz.toFixed(1)}deg) rotateX(${d.rx.toFixed(1)}deg) rotateY(${d.ry.toFixed(1)}deg)`;
 }
 
 function bounds(){ return { w: table.clientWidth - S, h: table.clientHeight - S }; }
@@ -274,7 +312,14 @@ function build(){
   for (let i = 0; i < count; i++){
     const el = document.createElement('button');
     el.className = 'die';
-    const d = { el, held:false, face:1, x:0, y:0, z:0, a:rnd(-12,12), vx:0, vy:0, vz:0, va:0 };
+    const shadow = document.createElement('span');
+    shadow.className = 'shadow';
+    const cube = document.createElement('span');
+    cube.className = 'cube';
+    cube.innerHTML = [1,2,3,4,5,6].map(v => `<span class="face f${v}">${pips(v)}</span>`).join('');
+    el.append(shadow, cube);
+    const d = { el, cube, held:false, face:1, target:1, x:0, y:0, z:0,
+                rx:0, ry:0, rz:rnd(-12,12), vx:0, vy:0, vz:0, vrz:0, tx:0, ty:0 };
     const c = i % 3, r = Math.floor(i / 3);
     d.x = (w + S - gw) / 2 + c * (S + gap);
     d.y = (h + S - gh) / 2 + r * (S + gap);
@@ -304,7 +349,7 @@ function build(){
       el.addEventListener(t, () => { clearTimeout(pressTimer); pressTimer = null; }));
     el.addEventListener('click', e => e.preventDefault());
     el.addEventListener('contextmenu', e => e.preventDefault());
-    face(d, old[i]?.face || rand6());
+    rest(d, old[i]?.face || rand6());
     draw(d);
     table.appendChild(el);
     dice.push(d);
@@ -345,9 +390,11 @@ function roll(vec){
   rattle(power);
   if (navigator.vibrate) navigator.vibrate(20);
 
+  movers.forEach(d => { d.target = rand6(); });   // decided now, revealed when they stop
+
   if (reduceMotion){
     const { w, h } = bounds();
-    movers.forEach(d => { d.x = rnd(0, w); d.y = rnd(0, h); d.a = rnd(-30, 30); face(d, rand6()); draw(d); });
+    movers.forEach(d => { d.x = rnd(0, w); d.y = rnd(0, h); d.rz = rnd(-30, 30); });
     return finish();
   }
 
@@ -359,8 +406,10 @@ function roll(vec){
     const k = rnd(0.8, 1.2);
     d.vx = cx * speed * k; d.vy = cy * speed * k;
     d.vz = rnd(380, 560) * Math.sqrt(power);
-    d.va = rnd(360, 900) * power * (Math.random() < .5 ? -1 : 1);
-    d.flip = 0;
+    d.vrz = rnd(-160, 160) * power;
+    d.tx = rnd(-320, 320) * power;      // free tumble, only while it is off the felt
+    d.ty = rnd(-320, 320) * power;
+    d.cube.classList.remove('settle');
   });
 
   let last = performance.now();
@@ -368,9 +417,13 @@ function roll(vec){
     const dt = Math.min(0.032, (now - last) / 1000); last = now;
     const { w, h } = bounds();
     const drag = Math.exp(-FRICTION * dt);
+    const k = 90 / S;        // rolling one face-width across the felt is a quarter turn
 
     for (const d of movers){
-      d.x += d.vx * dt; d.y += d.vy * dt; d.a += d.va * dt;
+      d.x += d.vx * dt; d.y += d.vy * dt;
+      d.rx += (-d.vy * k + (d.z > 0 ? d.tx : 0)) * dt;
+      d.ry += ( d.vx * k + (d.z > 0 ? d.ty : 0)) * dt;
+      d.rz += d.vrz * dt;
 
       // hops: each landing loses energy and turns the die to a new face
       if (d.z > 0 || d.vz > 0){
@@ -380,25 +433,21 @@ function roll(vec){
           const impact = Math.abs(d.vz);        // read before the bounce rewrites it
           const moving = Math.hypot(d.vx, d.vy);
           d.vz = d.vz < -90 && moving > 60 ? -d.vz * 0.55 : 0;
-          face(d, rand6());
+          d.tx *= 0.45; d.ty *= 0.45;          // each landing knocks the tumble out of it
           if (impact > 40) clack(impact / 500, 1);
           if (d.vz && navigator.vibrate) navigator.vibrate(4);
         }
-      } else {
-        // rolling on the felt: faces tumble while fast
-        d.flip += Math.hypot(d.vx, d.vy) * dt;
-        if (d.flip > S * 0.9){ d.flip = 0; face(d, rand6()); }
       }
 
       // extra drag when on the ground
       const g = d.z > 0 ? Math.exp(-0.3 * dt) : drag;
-      d.vx *= g; d.vy *= g; d.va *= drag;
+      d.vx *= g; d.vy *= g; d.vrz *= drag;
 
       // walls
-      if (d.x < 0){ d.x = 0; d.vx = Math.abs(d.vx) * 0.7; d.va += rnd(-300, 300); }
-      if (d.x > w){ d.x = w; d.vx = -Math.abs(d.vx) * 0.7; d.va += rnd(-300, 300); }
-      if (d.y < 0){ d.y = 0; d.vy = Math.abs(d.vy) * 0.7; d.va += rnd(-300, 300); }
-      if (d.y > h){ d.y = h; d.vy = -Math.abs(d.vy) * 0.7; d.va += rnd(-300, 300); }
+      if (d.x < 0){ d.x = 0; d.vx = Math.abs(d.vx) * 0.7; d.vrz += rnd(-200, 200); }
+      if (d.x > w){ d.x = w; d.vx = -Math.abs(d.vx) * 0.7; d.vrz += rnd(-200, 200); }
+      if (d.y < 0){ d.y = 0; d.vy = Math.abs(d.vy) * 0.7; d.vrz += rnd(-200, 200); }
+      if (d.y > h){ d.y = h; d.vy = -Math.abs(d.vy) * 0.7; d.vrz += rnd(-200, 200); }
     }
 
     // die-to-die collisions (held dice act as fixed obstacles)
@@ -421,22 +470,26 @@ function roll(vec){
         if (A.held){ B.vx += nx * imp * 2; B.vy += ny * imp * 2; }
         else if (B.held){ A.vx -= nx * imp * 2; A.vy -= ny * imp * 2; }
         else { A.vx -= nx * imp; A.vy -= ny * imp; B.vx += nx * imp; B.vy += ny * imp; }
-        if (!A.held) A.va += rnd(-400, 400);
-        if (!B.held) B.va += rnd(-400, 400);
+        if (!A.held) A.vrz += rnd(-260, 260);
+        if (!B.held) B.vrz += rnd(-260, 260);
       }
     }
 
     movers.forEach(draw);
 
     const still = movers.every(d => d.z === 0 && d.vz === 0 && Math.hypot(d.vx, d.vy) < STOP);
-    if (still){ movers.forEach(d => { d.vx = d.vy = d.va = 0; }); finish(); }
+    if (still){ movers.forEach(d => { d.vx = d.vy = d.vrz = 0; }); finish(); }
     else requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
 }
 
 function finish(){
-  dice.filter(d => !d.held).forEach(d => face(d, rand6()));
+  dice.filter(d => !d.held).forEach(d => {
+    if (!reduceMotion) d.cube.classList.add('settle');
+    rest(d, d.target);
+    draw(d);
+  });
   const sum = dice.reduce((s, d) => s + d.face, 0);
   totalEl.textContent = sum;
   totalEl.classList.remove('rolling');
