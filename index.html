@@ -155,9 +155,32 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 /* ---------- sound ----------
    Every dice sound is synthesised from one short noise buffer, so the page
    stays a single file with nothing to download. */
-let actx = null, noiseBuf = null, lastClack = 0;
+let actx = null, noiseBuf = null, lastClack = 0, silentEl = null, audioBlocked = false;
 
-// Must be called from a user gesture the first time, or iOS keeps it suspended.
+// iOS silences Web Audio while the ringer switch is off unless a media element
+// is playing, so loop a silent clip to keep the audio session audible.
+function silentClip(){
+  const rate = 8000, n = rate * 0.2;
+  const buf = new Uint8Array(44 + n);
+  const dv = new DataView(buf.buffer);
+  const tag = (o, t) => { for (let i = 0; i < t.length; i++) buf[o + i] = t.charCodeAt(i); };
+  tag(0, 'RIFF'); dv.setUint32(4, 36 + n, true); tag(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate, true);
+  dv.setUint16(32, 1, true); dv.setUint16(34, 8, true);
+  tag(36, 'data'); dv.setUint32(40, n, true);
+  buf.fill(128, 44);                                  // 128 is silence in 8-bit PCM
+  const el = document.createElement('audio');
+  el.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  el.loop = true;
+  el.playsInline = true;
+  el.setAttribute('playsinline', '');
+  return el;
+}
+
+// MUST run synchronously inside a user gesture the first time: Safari only
+// honours resume() while the gesture is still being handled, so anything
+// deferred (a setTimeout, a physics callback) is too late and stays silent.
 function ensureAudio(){
   if (!soundOn) return null;
   try {
@@ -170,9 +193,20 @@ function ensureAudio(){
       const ch = noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
     }
-    if (actx.state === 'suspended') actx.resume();
+    if (!silentEl) silentEl = silentClip();
+    if (silentEl.paused) silentEl.play().catch(() => {});
+    if (actx.state === 'suspended') actx.resume().catch(() => {});
+    audioBlocked = actx.state !== 'running';
     return actx;
   } catch(e){ return null; }
+}
+
+// Say why it is quiet instead of just being quiet.
+function audioNote(){
+  if (!soundOn) return '';
+  if (!actx) return '這個瀏覽器不支援音效';
+  if (actx.state !== 'running') return '瀏覽器擋住了音效，再按一次「擲」';
+  return '';
 }
 
 // One knock: noise through a bandpass, shaped by a very short decay.
@@ -202,8 +236,9 @@ function clack(strength, pitch){
 
 // The dice knocking together as they leave the hand.
 function rattle(power){
+  clack(rnd(0.3, 0.6), 1.15);           // now, while the gesture can still unlock audio
   let t = 0;
-  for (let i = 0, n = 3 + Math.round(power); i < n; i++){
+  for (let i = 0, n = 2 + Math.round(power); i < n; i++){
     t += rnd(28, 55);
     setTimeout(() => clack(rnd(0.3, 0.6), 1.15), t);
   }
@@ -405,7 +440,7 @@ function finish(){
   const sum = dice.reduce((s, d) => s + d.face, 0);
   totalEl.textContent = sum;
   totalEl.classList.remove('rolling');
-  hint.textContent = count > 1 ? dice.map(d => d.face).join(' + ') : '長按骰子可以保留';
+  hint.textContent = audioNote() || (count > 1 ? dice.map(d => d.face).join(' + ') : '長按骰子可以保留');
   history.unshift(sum); history = history.slice(0, 20);
   renderHistory(); save();
   if (navigator.vibrate) navigator.vibrate([15, 40, 15]);
@@ -421,18 +456,26 @@ function renderSound(){
 soundBtn.addEventListener('click', () => {
   soundOn = !soundOn;
   renderSound(); save();
-  if (soundOn) clack(0.5, 1);                       // let you hear what you switched on
-  else if (actx) { try { actx.suspend(); } catch(e){} }
-  hint.textContent = soundOn ? '音效已開啟' : '音效已關閉';
+  if (soundOn){
+    ensureAudio();
+    clack(0.5, 1);                                  // let you hear what you switched on
+  } else {
+    if (silentEl) silentEl.pause();
+    if (actx) { try { actx.suspend(); } catch(e){} }
+  }
+  hint.textContent = soundOn ? (audioNote() || '音效已開啟') : '音效已關閉';
 });
 renderSound();
 
-document.getElementById('roll').addEventListener('click', () => roll());
+document.getElementById('roll').addEventListener('click', () => { ensureAudio(); roll(); });
 document.getElementById('minus').addEventListener('click', () => { if (count > 1 && !rolling){ count--; build(); } });
 document.getElementById('plus').addEventListener('click', () => { if (count < 6 && !rolling){ count++; build(); } });
 
 // Swipe: track the last ~80ms of movement so the flick at release sets the power
-table.addEventListener('pointerdown', e => { track = [{ x: e.clientX, y: e.clientY, t: performance.now() }]; });
+table.addEventListener('pointerdown', e => {
+  ensureAudio();        // the swipe itself ends too late to unlock audio
+  track = [{ x: e.clientX, y: e.clientY, t: performance.now() }];
+});
 table.addEventListener('pointermove', e => {
   if (!track.length) return;
   const now = performance.now();
