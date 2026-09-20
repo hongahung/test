@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F4E47">
+<title>擲骰子</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --felt:#1F4E47; --felt-deep:#153731; --ivory:#F6F0E1; --ivory-edge:#D9CFB6;
+  --brass:#D4B25C; --ink:#EDE6D3; --muted:#9FB8B1;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --felt:#173D37; --felt-deep:#0F2B27; } }
+:root[data-theme="dark"]{ --felt:#173D37; --felt-deep:#0F2B27; }
+*,*::before,*::after{box-sizing:inherit}
+html,body{height:100%;margin:0}
+body{
+  background:radial-gradient(120% 80% at 50% 35%, var(--felt) 0%, var(--felt-deep) 100%);
+  background-color:var(--felt-deep);
+  color:var(--ink);
+  font-family:"Noto Serif TC","PingFang TC","Microsoft JhengHei",serif;
+  display:flex;flex-direction:column;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;-webkit-user-select:none;
+  overflow:hidden;
+}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 0}
+h1{font-size:1.1rem;font-weight:500;margin:0;letter-spacing:.08em;color:var(--muted)}
+.count{display:flex;align-items:center;gap:6px}
+.count button{
+  width:36px;height:36px;border-radius:50%;border:1.5px solid var(--brass);
+  background:transparent;color:var(--brass);font-size:1.3rem;line-height:1;cursor:pointer;font-family:inherit
+}
+.count button:disabled{opacity:.3}
+.count span{min-width:4.2em;text-align:center;font-size:.95rem}
+
+#total{
+  text-align:center;font-weight:900;font-size:clamp(4.5rem,24vw,8rem);line-height:1;
+  margin:14px 0 0;color:var(--ivory);font-variant-numeric:tabular-nums;transition:opacity .15s;
+}
+#total.rolling{opacity:.25}
+.meterwrap{width:120px;height:4px;margin:8px auto 0;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+#meter{height:100%;background:var(--brass);transform:scaleX(0);transform-origin:left;transition:transform .08s linear}
+[hidden]{display:none!important}
+#hint{text-align:center;font-size:.85rem;color:var(--muted);margin:6px 0 0;min-height:1.3em}
+
+#table{
+  flex:1;position:relative;margin:12px 14px;border-radius:22px;
+  border:2px solid rgba(212,178,92,.35);
+  box-shadow:inset 0 0 40px rgba(0,0,0,.35);
+  cursor:grab;touch-action:none;overflow:hidden;
+}
+#table:active{cursor:grabbing}
+.die{
+  --s:clamp(58px,19vw,84px); --z:0;
+  position:absolute;left:0;top:0;width:var(--s);height:var(--s);border-radius:18%;
+  background:linear-gradient(145deg,#fffaf0 0%,var(--ivory) 55%,var(--ivory-edge) 100%);
+  box-shadow:0 2px 0 var(--ivory-edge),
+    calc(var(--z) * .25px) calc(8px + var(--z) * .45px) calc(14px + var(--z) * .5px) rgba(0,0,0,calc(.4 - var(--z) * .002));
+  padding:0;border:none;cursor:pointer;will-change:transform;
+}
+.die:focus-visible{outline:3px solid var(--brass);outline-offset:4px}
+.die.held{
+  box-shadow:0 0 0 3px var(--brass),0 8px 14px rgba(0,0,0,.4);
+}
+.die.held::after{
+  content:"保留";position:absolute;left:50%;top:100%;transform:translate(-50%,6px);
+  font-size:.75rem;color:var(--brass);white-space:nowrap;font-family:inherit
+}
+.die{-webkit-touch-callout:none}
+.die svg{display:block;width:100%;height:100%;pointer-events:none}
+
+footer{padding:0 18px 18px}
+#history{
+  display:flex;gap:10px;overflow-x:auto;padding:0 0 12px;font-size:.9rem;color:var(--muted);
+  scrollbar-width:none;font-variant-numeric:tabular-nums;min-height:2em
+}
+#history span:first-child{color:var(--ink)}
+.actions{display:flex;gap:10px}
+#roll{
+  flex:1;height:60px;border-radius:30px;border:none;background:var(--brass);color:#2A220E;
+  font-family:inherit;font-weight:900;font-size:1.3rem;letter-spacing:.3em;cursor:pointer;
+  box-shadow:0 4px 0 #9C823F;
+}
+#roll:active{transform:translateY(3px);box-shadow:0 1px 0 #9C823F}
+#shake{
+  width:60px;height:60px;border-radius:50%;border:1.5px solid var(--brass);background:transparent;
+  color:var(--brass);font-family:inherit;font-size:.8rem;cursor:pointer;line-height:1.2
+}
+#shake[aria-pressed="true"]{background:rgba(212,178,92,.18)}
+button:focus-visible{outline:3px solid var(--ivory);outline-offset:3px}
+</style>
+</head>
+<body>
+<header>
+  <h1>擲骰子</h1>
+  <div class="count">
+    <button id="minus" aria-label="減少骰子">−</button>
+    <span id="countLabel">2 顆</span>
+    <button id="plus" aria-label="增加骰子">+</button>
+  </div>
+</header>
+
+<div id="total" aria-live="polite">–</div>
+<div class="meterwrap" hidden><div id="meter"></div></div>
+<p id="hint">在桌面上用手滑動來擲骰，滑越用力滾越久</p>
+
+<div id="table" role="group" aria-label="骰子桌"></div>
+
+<footer>
+  <div id="history" aria-label="最近結果"></div>
+  <div class="actions">
+    <button id="shake" aria-pressed="false">搖一搖<br>關</button>
+    <button id="roll">擲</button>
+  </div>
+</footer>
+
+<script>
+const LAYOUT = {1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+const POS = [[25,25],[50,25],[75,25],[25,50],[50,50],[75,50],[25,75],[50,75],[75,75]];
+const table = document.getElementById('table');
+const totalEl = document.getElementById('total');
+const hint = document.getElementById('hint');
+const histEl = document.getElementById('history');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let count = 2, dice = [], history = [], rolling = false, S = 70, track = [];
+
+try {
+  const saved = JSON.parse(localStorage.getItem('dice-state') || '{}');
+  if (saved.count) count = saved.count;
+  if (Array.isArray(saved.history)) history = saved.history;
+} catch(e){}
+function save(){ try{ localStorage.setItem('dice-state', JSON.stringify({count, history})); }catch(e){} }
+
+function rand6(){ const a = new Uint32Array(1); crypto.getRandomValues(a); return (a[0] % 6) + 1; }
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function face(d, v){
+  d.face = v;
+  const color = (v === 1 || v === 4) ? '#C8102E' : '#1B1B1B';
+  const r = v === 1 ? 13 : 9;
+  d.el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">${
+    LAYOUT[v].map(i => `<circle cx="${POS[i][0]}" cy="${POS[i][1]}" r="${r}" fill="${color}"/>`).join('')
+  }</svg>`;
+  d.el.setAttribute('aria-label', `點數 ${v}${d.held ? '，已保留' : ''}`);
+}
+
+function draw(d){
+  const lift = 1 + d.z / 500;
+  d.el.style.transform = `translate(${d.x}px, ${d.y - d.z * .6}px) rotate(${d.a}deg) scale(${lift})`;
+  d.el.style.setProperty('--z', d.z.toFixed(1));
+  d.el.style.zIndex = d.z > 1 ? 10 : 1;
+}
+
+function bounds(){ return { w: table.clientWidth - S, h: table.clientHeight - S }; }
+
+function build(){
+  table.innerHTML = '';
+  const old = dice; dice = [];
+  const probe = document.createElement('div'); probe.className = 'die'; table.appendChild(probe);
+  S = probe.offsetWidth; probe.remove();
+  const { w, h } = bounds();
+  const cols = Math.min(count, 3), rows = Math.ceil(count / 3), gap = S * 0.35;
+  const gw = cols * S + (cols - 1) * gap, gh = rows * S + (rows - 1) * gap;
+  for (let i = 0; i < count; i++){
+    const el = document.createElement('button');
+    el.className = 'die';
+    const d = { el, held:false, face:1, x:0, y:0, z:0, a:rnd(-12,12), vx:0, vy:0, vz:0, va:0 };
+    const c = i % 3, r = Math.floor(i / 3);
+    d.x = (w + S - gw) / 2 + c * (S + gap);
+    d.y = (h + S - gh) / 2 + r * (S + gap);
+    // Long-press (0.5s) to hold a die. Plain taps and swipes never hold,
+    // so every die always joins the throw unless you deliberately keep it.
+    let pressTimer = null, pressStart = null;
+    el.addEventListener('pointerdown', e => {
+      pressStart = { x: e.clientX, y: e.clientY };
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        if (rolling) return;
+        track = [];                       // cancel the swipe that started here
+        d.held = !d.held;
+        el.classList.toggle('held', d.held);
+        face(d, d.face);
+        if (navigator.vibrate) navigator.vibrate(25);
+        hint.textContent = d.held ? '已保留這顆，長按可取消' : '已取消保留';
+      }, 500);
+    });
+    el.addEventListener('pointermove', e => {
+      if (pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > 10){
+        clearTimeout(pressTimer); pressTimer = null;
+      }
+    });
+    ['pointerup','pointercancel','pointerleave'].forEach(t =>
+      el.addEventListener(t, () => { clearTimeout(pressTimer); pressTimer = null; }));
+    el.addEventListener('click', e => e.preventDefault());
+    el.addEventListener('contextmenu', e => e.preventDefault());
+    face(d, old[i]?.face || rand6());
+    draw(d);
+    table.appendChild(el);
+    dice.push(d);
+  }
+  document.getElementById('countLabel').textContent = `${count} 顆`;
+  document.getElementById('minus').disabled = count <= 1;
+  document.getElementById('plus').disabled = count >= 6;
+  totalEl.textContent = '–';
+  save();
+}
+
+function renderHistory(){ histEl.innerHTML = history.map(h => `<span>${h}</span>`).join(''); }
+
+/* ---------- physics ---------- */
+const FRICTION = 1.5;        // ground drag, per second
+const GRAVITY = 2600;        // px/s² for the hop height
+const STOP = 25;             // px/s: below this a die settles
+
+function roll(vec){
+  if (rolling) return;
+  const movers = dice.filter(d => !d.held);
+  if (!movers.length){ hint.textContent = '全部都保留了，長按骰子取消保留'; return; }
+
+  // power: 0.4 (gentle flick) to 3 (hard fling) — scales speed, hop and spin
+  let dirX, dirY, power;
+  if (vec){
+    const len = Math.hypot(vec.dx, vec.dy) || 1;
+    dirX = vec.dx / len; dirY = vec.dy / len;
+    power = Math.min(3, Math.max(0.4, vec.speed));
+  } else {
+    const t = rnd(0, Math.PI * 2);
+    dirX = Math.cos(t); dirY = Math.sin(t); power = rnd(0.9, 1.4);
+  }
+
+  rolling = true;
+  totalEl.classList.add('rolling');
+  hint.textContent = '滾動中…';
+  if (navigator.vibrate) navigator.vibrate(20);
+
+  if (reduceMotion){
+    const { w, h } = bounds();
+    movers.forEach(d => { d.x = rnd(0, w); d.y = rnd(0, h); d.a = rnd(-30, 30); face(d, rand6()); draw(d); });
+    return finish();
+  }
+
+  const speed = 520 * power;
+  movers.forEach(d => {
+    const spread = rnd(-0.45, 0.45);
+    const cx = dirX * Math.cos(spread) - dirY * Math.sin(spread);
+    const cy = dirX * Math.sin(spread) + dirY * Math.cos(spread);
+    const k = rnd(0.8, 1.2);
+    d.vx = cx * speed * k; d.vy = cy * speed * k;
+    d.vz = rnd(380, 560) * Math.sqrt(power);
+    d.va = rnd(360, 900) * power * (Math.random() < .5 ? -1 : 1);
+    d.flip = 0;
+  });
+
+  let last = performance.now();
+  function step(now){
+    const dt = Math.min(0.032, (now - last) / 1000); last = now;
+    const { w, h } = bounds();
+    const drag = Math.exp(-FRICTION * dt);
+
+    for (const d of movers){
+      d.x += d.vx * dt; d.y += d.vy * dt; d.a += d.va * dt;
+
+      // hops: each landing loses energy and turns the die to a new face
+      if (d.z > 0 || d.vz > 0){
+        d.vz -= GRAVITY * dt; d.z += d.vz * dt;
+        if (d.z <= 0){
+          d.z = 0;
+          const moving = Math.hypot(d.vx, d.vy);
+          d.vz = d.vz < -90 && moving > 60 ? -d.vz * 0.55 : 0;
+          face(d, rand6());
+          if (d.vz && navigator.vibrate) navigator.vibrate(4);
+        }
+      } else {
+        // rolling on the felt: faces tumble while fast
+        d.flip += Math.hypot(d.vx, d.vy) * dt;
+        if (d.flip > S * 0.9){ d.flip = 0; face(d, rand6()); }
+      }
+
+      // extra drag when on the ground
+      const g = d.z > 0 ? Math.exp(-0.3 * dt) : drag;
+      d.vx *= g; d.vy *= g; d.va *= drag;
+
+      // walls
+      if (d.x < 0){ d.x = 0; d.vx = Math.abs(d.vx) * 0.7; d.va += rnd(-300, 300); }
+      if (d.x > w){ d.x = w; d.vx = -Math.abs(d.vx) * 0.7; d.va += rnd(-300, 300); }
+      if (d.y < 0){ d.y = 0; d.vy = Math.abs(d.vy) * 0.7; d.va += rnd(-300, 300); }
+      if (d.y > h){ d.y = h; d.vy = -Math.abs(d.vy) * 0.7; d.va += rnd(-300, 300); }
+    }
+
+    // die-to-die collisions (held dice act as fixed obstacles)
+    const R = S * 0.95;
+    for (let i = 0; i < dice.length; i++){
+      for (let j = i + 1; j < dice.length; j++){
+        const A = dice[i], B = dice[j];
+        if (A.held && B.held) continue;
+        if (Math.abs(A.z - B.z) > S * 0.6) continue;   // one flew over the other
+        const dx = B.x - A.x, dy = B.y - A.y, dist = Math.hypot(dx, dy);
+        if (dist >= R || dist === 0) continue;
+        const nx = dx / dist, ny = dy / dist, overlap = R - dist;
+        if (A.held){ B.x += nx * overlap; B.y += ny * overlap; }
+        else if (B.held){ A.x -= nx * overlap; A.y -= ny * overlap; }
+        else { A.x -= nx * overlap / 2; A.y -= ny * overlap / 2; B.x += nx * overlap / 2; B.y += ny * overlap / 2; }
+        const rv = (A.held ? 0 : A.vx * nx + A.vy * ny) - (B.held ? 0 : B.vx * nx + B.vy * ny);
+        if (rv <= 0) continue;
+        const imp = rv * 0.85;
+        if (A.held){ B.vx += nx * imp * 2; B.vy += ny * imp * 2; }
+        else if (B.held){ A.vx -= nx * imp * 2; A.vy -= ny * imp * 2; }
+        else { A.vx -= nx * imp; A.vy -= ny * imp; B.vx += nx * imp; B.vy += ny * imp; }
+        if (!A.held) A.va += rnd(-400, 400);
+        if (!B.held) B.va += rnd(-400, 400);
+      }
+    }
+
+    movers.forEach(draw);
+
+    const still = movers.every(d => d.z === 0 && d.vz === 0 && Math.hypot(d.vx, d.vy) < STOP);
+    if (still){ movers.forEach(d => { d.vx = d.vy = d.va = 0; }); finish(); }
+    else requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function finish(){
+  dice.filter(d => !d.held).forEach(d => face(d, rand6()));
+  const sum = dice.reduce((s, d) => s + d.face, 0);
+  totalEl.textContent = sum;
+  totalEl.classList.remove('rolling');
+  hint.textContent = count > 1 ? dice.map(d => d.face).join(' + ') : '長按骰子可以保留';
+  history.unshift(sum); history = history.slice(0, 20);
+  renderHistory(); save();
+  if (navigator.vibrate) navigator.vibrate([15, 40, 15]);
+  rolling = false;
+}
+
+/* ---------- input ---------- */
+document.getElementById('roll').addEventListener('click', () => roll());
+document.getElementById('minus').addEventListener('click', () => { if (count > 1 && !rolling){ count--; build(); } });
+document.getElementById('plus').addEventListener('click', () => { if (count < 6 && !rolling){ count++; build(); } });
+
+// Swipe: track the last ~80ms of movement so the flick at release sets the power
+table.addEventListener('pointerdown', e => { track = [{ x: e.clientX, y: e.clientY, t: performance.now() }]; });
+table.addEventListener('pointermove', e => {
+  if (!track.length) return;
+  const now = performance.now();
+  track.push({ x: e.clientX, y: e.clientY, t: now });
+  while (track.length > 2 && now - track[0].t > 80) track.shift();
+});
+table.addEventListener('pointerup', e => {
+  if (!track.length) return;
+  const now = performance.now();
+  track.push({ x: e.clientX, y: e.clientY, t: now });
+  const first = track[0], lastP = track[track.length - 1];
+  const dx = lastP.x - first.x, dy = lastP.y - first.y;
+  const dist = Math.hypot(dx, dy), dt = Math.max(8, lastP.t - first.t);
+  track = [];
+  if (dist < 30) return;                 // a tap, not a swipe
+  roll({ dx, dy, speed: dist / dt });    // px per ms ≈ power
+});
+table.addEventListener('pointercancel', () => { track = []; });
+
+// Shake to roll
+const shakeBtn = document.getElementById('shake');
+const meter = document.getElementById('meter');
+let shakeOn = false, lastShake = 0, gotMotion = false, noDataTimer = null;
+let gx = 0, gy = 0, gz = 0, peak = null;   // gravity estimate + current shake peak
+
+function onMotion(e){
+  gotMotion = true;
+  let x, y, z;
+  if (e.acceleration && e.acceleration.x != null){
+    ({ x, y, z } = e.acceleration);          // gravity already removed
+  } else if (e.accelerationIncludingGravity){
+    const g = e.accelerationIncludingGravity; // strip gravity with a low-pass filter
+    gx = gx * .85 + (g.x||0) * .15; gy = gy * .85 + (g.y||0) * .15; gz = gz * .85 + (g.z||0) * .15;
+    x = (g.x||0) - gx; y = (g.y||0) - gy; z = (g.z||0) - gz;
+  } else return;
+  x = x || 0; y = y || 0; z = z || 0;
+  const mag = Math.hypot(x, y, z);
+  meter.style.transform = `scaleX(${Math.min(1, mag / 25)})`;
+
+  const now = Date.now();
+  if (rolling || now - lastShake < 1000) return;
+  if (mag > 11){
+    // keep the strongest sample of this shake, then throw once it calms down
+    if (!peak || mag > peak.mag) peak = { mag, x, y, t: now };
+  } else if (peak && now - peak.t > 60){
+    lastShake = now;
+    roll({ dx: -peak.x, dy: peak.y, speed: Math.min(3, Math.max(0.6, peak.mag / 12)) });
+    peak = null;
+  }
+}
+
+shakeBtn.addEventListener('click', async () => {
+  if (!shakeOn){
+    if (!('DeviceMotionEvent' in window)){ hint.textContent = '這台裝置不支援搖一搖'; return; }
+    if (typeof DeviceMotionEvent.requestPermission === 'function'){
+      try {
+        const p = await DeviceMotionEvent.requestPermission();
+        if (p !== 'granted'){ hint.textContent = '沒有取得動作感測權限，請到設定允許後再試'; return; }
+      } catch(err){
+        hint.textContent = '這個畫面無法要求感測權限，請用 Safari 直接開啟網址';
+        return;
+      }
+    }
+    gotMotion = false; peak = null;
+    window.addEventListener('devicemotion', onMotion);
+    shakeOn = true;
+    meter.parentElement.hidden = false;
+    hint.textContent = '搖動手機就會擲骰';
+    clearTimeout(noDataTimer);
+    noDataTimer = setTimeout(() => {
+      if (shakeOn && !gotMotion)
+        hint.textContent = '收不到感測資料，請複製網址到 Safari 或 Chrome 開啟';
+    }, 1500);
+  } else {
+    window.removeEventListener('devicemotion', onMotion);
+    shakeOn = false;
+    meter.parentElement.hidden = true;
+    hint.textContent = '搖一搖已關閉';
+  }
+  shakeBtn.setAttribute('aria-pressed', shakeOn);
+  shakeBtn.innerHTML = `搖一搖<br>${shakeOn ? '開' : '關'}`;
+});
+
+// keep dice on the table if the screen rotates
+addEventListener('resize', () => {
+  const { w, h } = bounds();
+  dice.forEach(d => { d.x = Math.min(Math.max(0, d.x), w); d.y = Math.min(Math.max(0, d.y), h); draw(d); });
+});
+
+build();
+renderHistory();
+</script>
+</body>
+</html>
