@@ -29,8 +29,8 @@ update merge by test 1
 ### 部署
 
 推到 `master` 後，`.github/workflows/pages.yml` 會自動部署到 GitHub Pages。
-workflow 內的 `enablement: true` 會在第一次執行時自動啟用 Pages 並設定為 GitHub Actions 來源，
-不需要先到設定頁手動開啟。
+第一次需要先到 repo 的 **Settings → Pages → Build and deployment → Source** 選擇 **GitHub Actions**；
+workflow 用的 `GITHUB_TOKEN` 沒有權限自己建立 Pages site，所以這一步必須手動做一次。
 
 網址：https://hongahung.github.io/test/
 
