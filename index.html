@@ -48,9 +48,10 @@ h1{font-size:1.1rem;font-weight:500;margin:0;letter-spacing:.08em;color:var(--mu
 
 #total{
   text-align:center;font-weight:900;font-size:clamp(4.5rem,24vw,8rem);line-height:1;
-  margin:14px 0 0;color:var(--ivory);font-variant-numeric:tabular-nums;transition:opacity .15s;
+  margin:14px 0 0;color:var(--ivory);font-variant-numeric:tabular-nums;
+  transition:opacity .3s ease, transform .3s cubic-bezier(.2,.8,.3,1);
 }
-#total.rolling{opacity:.25}
+#total.rolling{opacity:.25;transform:scale(.93)}
 .meterwrap{width:120px;height:4px;margin:8px auto 0;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
 #meter{height:100%;background:var(--brass);transform:scaleX(0);transform-origin:left;transition:transform .08s linear}
 [hidden]{display:none!important}
@@ -282,6 +283,15 @@ function face(d, v){
   d.el.setAttribute('aria-label', `點數 ${v}${d.held ? '，已保留' : ''}`);
 }
 
+// Pick the orientation this die will come to rest in, measured from where it
+// is right now so it leans the short way round into its final face.
+function aim(d){
+  const [tx, ty] = SHOW[d.target];
+  d.gx = tx + Math.round((d.rx - tx) / 360) * 360;
+  d.gy = ty + Math.round((d.ry - ty) / 360) * 360;
+  d.settling = true;
+}
+
 // Turn the cube so v faces the viewer, by the shortest way round from where
 // it already is, so a die never unwinds a dozen turns to land.
 function rest(d, v){
@@ -319,7 +329,8 @@ function build(){
     cube.innerHTML = [1,2,3,4,5,6].map(v => `<span class="face f${v}">${pips(v)}</span>`).join('');
     el.append(shadow, cube);
     const d = { el, cube, held:false, face:1, target:1, x:0, y:0, z:0,
-                rx:0, ry:0, rz:rnd(-12,12), vx:0, vy:0, vz:0, vrz:0, tx:0, ty:0 };
+                rx:0, ry:0, rz:rnd(-12,12), vx:0, vy:0, vz:0, vrz:0, tx:0, ty:0,
+                settling:false, gx:0, gy:0 };
     const c = i % 3, r = Math.floor(i / 3);
     d.x = (w + S - gw) / 2 + c * (S + gap);
     d.y = (h + S - gh) / 2 + r * (S + gap);
@@ -367,6 +378,8 @@ function renderHistory(){ histEl.innerHTML = history.map(h => `<span>${h}</span>
 const FRICTION = 1.5;        // ground drag, per second
 const GRAVITY = 2600;        // px/s² for the hop height
 const STOP = 25;             // px/s: below this a die settles
+const TIP = 180;             // px/s: slower than this, it stops tumbling and tips onto a face
+const TIP_RATE = 7;          // how quickly it leans over, per second
 
 function roll(vec){
   if (rolling) return;
@@ -409,6 +422,7 @@ function roll(vec){
     d.vrz = rnd(-160, 160) * power;
     d.tx = rnd(-320, 320) * power;      // free tumble, only while it is off the felt
     d.ty = rnd(-320, 320) * power;
+    d.settling = false;
     d.cube.classList.remove('settle');
   });
 
@@ -421,9 +435,24 @@ function roll(vec){
 
     for (const d of movers){
       d.x += d.vx * dt; d.y += d.vy * dt;
-      d.rx += (-d.vy * k + (d.z > 0 ? d.tx : 0)) * dt;
-      d.ry += ( d.vx * k + (d.z > 0 ? d.ty : 0)) * dt;
       d.rz += d.vrz * dt;
+
+      // A real die tips onto a face while it still has slide left in it, so
+      // aim for the final face early and lean into it as the die runs down,
+      // rather than correcting the angle once everything has stopped.
+      const sp = Math.hypot(d.vx, d.vy);
+      if (d.settling && (d.z > 0 || sp > TIP * 1.6)) d.settling = false;   // knocked back into play
+      else if (!d.settling && d.z === 0 && sp < TIP) aim(d);
+
+      if (d.settling){
+        const lean = 1 - Math.exp(-TIP_RATE * dt);
+        d.rx += (d.gx - d.rx) * lean;
+        d.ry += (d.gy - d.ry) * lean;
+        d.vrz *= Math.exp(-5 * dt);
+      } else {
+        d.rx += (-d.vy * k + (d.z > 0 ? d.tx : 0)) * dt;
+        d.ry += ( d.vx * k + (d.z > 0 ? d.ty : 0)) * dt;
+      }
 
       // hops: each landing loses energy and turns the die to a new face
       if (d.z > 0 || d.vz > 0){
@@ -477,7 +506,8 @@ function roll(vec){
 
     movers.forEach(draw);
 
-    const still = movers.every(d => d.z === 0 && d.vz === 0 && Math.hypot(d.vx, d.vy) < STOP);
+    const still = movers.every(d => d.z === 0 && d.vz === 0 && Math.hypot(d.vx, d.vy) < STOP
+      && d.settling && Math.abs(d.gx - d.rx) < 0.6 && Math.abs(d.gy - d.ry) < 0.6);
     if (still){ movers.forEach(d => { d.vx = d.vy = d.vrz = 0; }); finish(); }
     else requestAnimationFrame(step);
   }
@@ -486,7 +516,7 @@ function roll(vec){
 
 function finish(){
   dice.filter(d => !d.held).forEach(d => {
-    if (!reduceMotion) d.cube.classList.add('settle');
+    if (!d.settling && !reduceMotion) d.cube.classList.add('settle');
     rest(d, d.target);
     draw(d);
   });
